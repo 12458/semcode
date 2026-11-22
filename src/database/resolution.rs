@@ -6,7 +6,7 @@
 // into "this call can reach that function".
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use crate::types::{DispatchSite, Registration, ARRAY_ELEMENT_MEMBER};
 
@@ -330,20 +330,21 @@ pub fn group_by_member(sites: Vec<DispatchSite>) -> HashMap<String, Vec<Dispatch
 /// rather than of every caller.
 const LAZY_THRESHOLD: usize = 64;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 struct Inner {
     cache: HashMap<String, Option<String>>,
     fallback: Option<HashMap<String, String>>,
     lookups: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RevisionPaths {
     repo_path: PathBuf,
     git_sha: String,
     dirty: HashMap<String, String>,
     deleted: HashSet<String>,
-    inner: RwLock<Inner>,
+    // Only committed paths go here, so different overlay snapshots can share it.
+    inner: Arc<RwLock<Inner>>,
     threshold: usize,
     valid: bool,
 }
@@ -355,24 +356,9 @@ impl Default for RevisionPaths {
             git_sha: String::new(),
             dirty: HashMap::new(),
             deleted: HashSet::new(),
-            inner: RwLock::new(Inner::default()),
+            inner: Arc::default(),
             threshold: LAZY_THRESHOLD,
             valid: true,
-        }
-    }
-}
-
-impl Clone for RevisionPaths {
-    fn clone(&self) -> Self {
-        let inner = self.inner.read().unwrap().clone();
-        Self {
-            repo_path: self.repo_path.clone(),
-            git_sha: self.git_sha.clone(),
-            dirty: self.dirty.clone(),
-            deleted: self.deleted.clone(),
-            inner: RwLock::new(inner),
-            threshold: self.threshold,
-            valid: self.valid,
         }
     }
 }
@@ -386,11 +372,11 @@ impl RevisionPaths {
             git_sha: String::new(),
             dirty: HashMap::new(),
             deleted: HashSet::new(),
-            inner: RwLock::new(Inner {
+            inner: Arc::new(RwLock::new(Inner {
                 cache: HashMap::new(),
                 fallback: Some(paths),
                 lookups: 0,
-            }),
+            })),
             threshold: LAZY_THRESHOLD,
             valid,
         }
@@ -410,9 +396,21 @@ impl RevisionPaths {
             git_sha,
             dirty,
             deleted,
-            inner: RwLock::new(Inner::default()),
+            inner: Arc::default(),
             threshold: LAZY_THRESHOLD,
             valid,
+        }
+    }
+
+    pub(super) fn with_overlay(
+        &self,
+        dirty: HashMap<String, String>,
+        deleted: HashSet<String>,
+    ) -> Self {
+        Self {
+            dirty,
+            deleted,
+            ..self.clone()
         }
     }
 

@@ -620,6 +620,12 @@ impl WorkdirIndex {
         self.dirty_manifest.is_empty() && self.deleted_files.is_empty()
     }
 
+    /// The commit HEAD named when this overlay was built. Its dirty and
+    /// deleted paths are relative to that commit and to no other.
+    pub fn head_sha(&self) -> Option<&str> {
+        self.head_sha.as_deref()
+    }
+
     /// Number of dirty files indexed.
     pub fn dirty_file_count(&self) -> usize {
         self.dirty_manifest.len()
